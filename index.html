@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Assistant</title>
+    <style>
+        body {
+            max-width: 600px; margin: 50px auto;
+            padding: 20px;
+        }
+        .heading{
+            text-align: center;
+        }
+        .radio-group{
+            display: flex;
+            justify-content: space-around;
+        }
+        #chatbox { 
+            width: 100%; height: 300px; border: 1px solid #ccc; 
+            padding: 10px; overflow-y: scroll; margin-bottom: 10px; 
+            border-radius: 5px; 
+        }
+        .user { color: blue; margin-bottom: 5px; }
+        .ai { color: green; margin-bottom: 5px; }
+        input[type="text"] { width: 75%; padding: 10px; }
+        button { padding: 10px 20px; }
+        fieldset { margin-bottom: 15px; }
+        legend { font-weight: bold; }
+        label { margin-right: 15px; }
+        .feedback { margin-top: -10px; margin-bottom: 15px; font-size: 0.9em; }
+        .feedback button { padding: 3px 10px; margin-right: 5px; }
+        #stats { font-size: 0.85em; color: #555; }
+    </style>
+</head>
+<body>
+    <div class="heading">
+        <h1>AI Assistant</h1>
+    </div>
+    <div>
+        <p style="text-align: center;">
+            An assistant capable of 3 functionalities (i.e. answering, summarizing and generating content) as demonstrated below :
+        </p>
+    </div>
+    <fieldset>
+        <legend>Choose a function</legend>
+        {% for func_key, func in prompts.items() %}
+        <label>
+            <input type="radio" name="function" value="{{ func_key }}" onchange="updateStyles()" {% if loop.first %}checked{% endif %}>
+            {{ func.label }}
+        </label>
+        {% endfor %}
+    </fieldset>
+
+    <fieldset>
+        <legend>Choose a prompt style</legend>
+        <div id="styleOptions"></div>
+    </fieldset>
+
+    <div id="chatbox"></div>
+    <input type="text" id="userInput" placeholder="Ask something...">
+    <button onclick="sendMessage()">Send</button>
+
+    <p id="stats"></p>
+    <script>
+        const PROMPTS = {{ prompts | tojson }};
+        let lastFunction = null;
+        let lastStyle = null;
+        let lastInput = null;
+        let lastResponse = null;
+
+        function updateStyles() {
+            const funcKey = document.querySelector('input[name="function"]:checked').value;
+            const styles = PROMPTS[funcKey].styles;
+            const container = document.getElementById('styleOptions');
+            container.innerHTML = '';
+            let first = true;
+            for (const styleKey in styles) {
+                const label = document.createElement('label');
+                const radio = document.createElement('input');
+                radio.type = 'radio';
+                radio.name = 'style';
+                radio.value = styleKey;
+                if (first) { radio.checked = true; first = false; }
+                label.appendChild(radio);
+                label.appendChild(document.createTextNode(' ' + styleKey));
+                container.appendChild(label);
+            }
+        }
+
+        async function sendMessage() {
+            const inputField = document.getElementById('userInput');
+            const message = inputField.value.trim();
+            if (!message) return;
+
+            const funcKey = document.querySelector('input[name="function"]:checked').value;
+            const styleKey = document.querySelector('input[name="style"]:checked').value;
+
+            const chatbox = document.getElementById('chatbox');
+            chatbox.innerHTML += `<div class="user"><b>You:</b> ${message}</div>`;
+            inputField.value = '';
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message, function: funcKey, style: styleKey })
+                });
+                const data = await response.json();
+
+                if (data.response) {
+                    chatbox.innerHTML += `<div class="ai"><b>AI:</b> ${data.response}</div>`;
+                    chatbox.innerHTML += `
+                        <div class="feedback">
+                            Was this helpful?
+                            <button onclick="sendFeedback(true)">Yes</button>
+                            <button onclick="sendFeedback(false)">No</button>
+                        </div>`;
+                    lastFunction = funcKey;
+                    lastStyle = styleKey;
+                    lastInput = message;
+                    lastResponse = data.response;
+                } else {
+                    chatbox.innerHTML += `<div class="ai" style="color:red;"><b>Error:</b> ${data.error}</div>`;
+                }
+            } catch (error) {
+                chatbox.innerHTML += `<div class="ai" style="color:red;"><b>Error:</b> Failed to connect to server.</div>`;
+            }
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        async function sendFeedback(helpful) {
+            await fetch('/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    function: lastFunction,
+                    style: lastStyle,
+                    input: lastInput,
+                    response: lastResponse,
+                    helpful: helpful
+                })
+            });
+            loadStats();
+        }
+
+        async function loadStats() {
+            const response = await fetch('/feedback-stats');
+            const data = await response.json();
+            document.getElementById('stats').innerText =
+                `Feedback: ${data.total} total, ${data.helpful} helpful, ${data.not_helpful} not helpful`;
+        }
+
+        updateStyles();
+        loadStats();
+    </script>
+</body>
+</html>
